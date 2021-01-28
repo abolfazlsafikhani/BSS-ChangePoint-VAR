@@ -131,7 +131,7 @@ var.sim.break <- function (nobs, arlags = NULL, malags = NULL, cnst = NULL, phi 
 #' }
 bss <- function(data, lambda.1.cv = NULL, lambda.2.cv = NULL, q = 1, 
                 max.iteration = 100, tol = 10^(-2), block.size = NULL, blocks = NULL,
-                refine = TRUE){
+                refine = FALSE){
   T <- length(data[,1]); p <- length(data[1,]); 
   second.brk.points <- c(); pts.final <- c();
   

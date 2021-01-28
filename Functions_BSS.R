@@ -7,8 +7,7 @@
 #' @param phi parameter matrix of the AR model
 #' @param theta parameter matrix of the MA model
 #' @param sigma covariance matrix of the white noise
-#' @return Matrice of time series data and white noise data 
-
+#' @return Matrices of time series data and white noise data 
 var.sim.break <- function (nobs, arlags = NULL, malags = NULL, cnst = NULL, phi = NULL,theta = NULL, skip = 200, sigma, brk = nobs+1) {
   if (!is.matrix(sigma)) 
     sigma = as.matrix(sigma)
@@ -122,32 +121,37 @@ var.sim.break <- function (nobs, arlags = NULL, malags = NULL, cnst = NULL, phi 
 #' @param tol tolerance for the fused lasso 
 #' @param block.size the block size
 #' @param blocks the blocks
-#' @return A list oject, which contains the followings
+#' @param refine logical; if TRUE, use local refinement in the exhaustive search step. Default is TRUE.
+#' @return A list object, which contains the followings
 #' \describe{
 #'   \item{pts.1}{a set of selected break point after the first block fused lasso step}
 #'   \item{pts.2}{a set of selected break point after the second local screening step}
 #'   \item{pts.3}{a set of selected break point after the thrid exhaustive search step}
 #'   \item{an}{the selected neighborhood size a_n after the grid search}
 #' }
-
-bss <- function( data, lambda.1.cv= NULL, lambda.2.cv = NULL, q=1, max.iteration = 100, tol = 10^(-2), block.size = NULL, blocks=NULL){
-  
+bss <- function(data, lambda.1.cv = NULL, lambda.2.cv = NULL, q = 1, 
+                max.iteration = 100, tol = 10^(-2), block.size = NULL, blocks = NULL,
+                refine = TRUE){
   T <- length(data[,1]); p <- length(data[1,]); 
   second.brk.points <- c(); pts.final <- c();
   
   ############# block size and blocks ###########
   if(is.null(block.size) && is.null(blocks) ){
     block.size = floor(sqrt(T));
-    blocks <- seq(0,T,block.size);
+    blocks <- seq(0, T, block.size);
   }else if( !is.null(block.size) && is.null(blocks)){
-    blocks <- seq(0,T,block.size);
+    blocks <- seq(0, T, block.size);
   }else if(!is.null(block.size) && !is.null(blocks)){
     #check if the block.size and blocks match
     n.new <- length(blocks) - 1;
     blocks.size.check <- sapply(c(1:n.new), function(jjj) blocks[jjj+1] - blocks[jjj]  );
-    if( sum(blocks.size.check[1: (length(blocks.size.check)-1 )] != block.size ) >0 ){
+    if( sum(blocks.size.check[1: (length(blocks.size.check)-1 )] != block.size ) > 0 ){
       stop("Error: The block.size and blocks can't match!")
     }
+  }
+  
+  if(blocks[length(blocks)] < T){
+    blocks <- c(blocks[-length(blocks)], T)
   }
   
   n.new <- length(blocks) - 1;
@@ -156,8 +160,9 @@ bss <- function( data, lambda.1.cv= NULL, lambda.2.cv = NULL, q=1, max.iteration
   
   #sample the cv index for cross-validation
   bbb <- floor(n.new/5);
-  aaa <- sample(1:5, 1);
-  cv.index <- seq(aaa,n.new,floor(n.new/bbb));
+  # aaa <- sample(1:5, 1);
+  aaa <- 4
+  cv.index <- seq(aaa, n.new, floor(n.new/bbb));
   
   ############# Tuning parameter ################
   if(is.null(lambda.1.cv)){
@@ -185,6 +190,7 @@ bss <- function( data, lambda.1.cv= NULL, lambda.2.cv = NULL, q=1, max.iteration
   #run the first block fused lasso step 
   temp.first <- first.step.blocks( data, lambda.1.cv, lambda.2.cv, q, max.iteration = max.iteration, tol = tol, cv.index, blocks=blocks)
   first.brk.points <- temp.first$brk.points;
+  phi.est.full <- temp.first$phi.full
 
   #construct the grid values of neighborhood size a_n
   n <- T - q;
@@ -194,6 +200,7 @@ bss <- function( data, lambda.1.cv= NULL, lambda.2.cv = NULL, q=1, max.iteration
   an.idx.final <- length(an.grid)
   an.grid <- floor(an.grid);
   final.pts.res <- vector("list",length(an.grid));
+  final.phi.hat.list.res <- vector("list",length(an.grid));
   flag <- c("FALSE");
   an.idx <- 0;
   
@@ -201,6 +208,7 @@ bss <- function( data, lambda.1.cv= NULL, lambda.2.cv = NULL, q=1, max.iteration
   while(an.idx < length(an.grid)  ){
     an.idx <- an.idx + 1;
     an <- an.grid[an.idx]
+    print(an)
     
     #remove the boundary points
     remove.ind <- c();
@@ -228,19 +236,23 @@ bss <- function( data, lambda.1.cv= NULL, lambda.2.cv = NULL, q=1, max.iteration
       ######################################################
       ######## Thrid Step: Exhaustive Search      ##########
       ######################################################
+      print(second.brk.points)
       pts.final <- second.brk.points;
       #keep running until none of the selected break points close to any other selected break points 
-      while( min(abs(diff(pts.final)),3*an) <  2*an  ){
+      while( abs(diff(pts.final)) <  2*an  ){
         if( length(pts.final) != 0){
           #cluster the selected break points by size 2a_n
-          pts.list <- block.finder(pts.final,2*an)
+          pts.list <- block.finder(pts.final, 2*an)
           # run the third exhaustive search step for each cluster
-          pts.final <- third.step.exhaustive(data, q, max.iteration = 1000, tol = tol, pts.list, an , eta )
+          temp.third <- third.step.exhaustive(data, q, max.iteration = 1000, tol = tol, pts.list, an, eta)
+          pts.final <- temp.third$pts
+         
         }
       }
-      
+
       #record the final selected break points for each given a_n
       final.pts.res[[an.idx]] <- pts.final
+      # final.phi.hat.list.res[[an.idx]] <- phi.hat.list
       
       #terminate the grid search of an if the number of final selected break points is stable
       if(an.idx > 2){
@@ -270,7 +282,43 @@ bss <- function( data, lambda.1.cv= NULL, lambda.2.cv = NULL, q=1, max.iteration
     an.sel <- an.grid[an.idx.final];
   }
   
-  return(list(first.selected.points = first.brk.points, second.selected.points = second.brk.points, final.selected.points = final.pts.res[[an.idx.final]], final.selected.points.grid = final.pts.res, an = an.sel)) 
+  if(refine == TRUE){
+    pts.final = final.pts.res[[an.idx.final]]
+    pts.list <- block.finder(pts.final, 2*an.sel)
+    temp.forth <- forth.step.refine(data, q, max.iteration = 1000, tol = tol, pts.list, an.sel, phi.est.full, blocks)
+    phi.hat.list <- temp.forth$phi.hat.list
+    pts.final <- temp.forth$pts
+  }else{
+    pts.final = final.pts.res[[an.idx.final]]
+    pts.list <- block.finder(pts.final, 2*an.sel)
+    pts.list.full <- pts.list
+    pts.list.full <- c(1, pts.list.full , T)
+    phi.hat.list <- vector("list", length(pts.final) + 1)
+    cp.index.list <- vector("list", length(pts.final) + 2);
+    cp.index.list[[1]] <- c(1);
+    cp.index.list[[length(pts.final)+2]] <- c(n.new+1);
+    for(i in 1:length(pts.final)){
+      pts.temp <- pts.list.full[[i+1]];
+      cp.index.list[[i+1]] <- match(pts.temp, blocks)
+    }
+    
+    #construct the interval for performing the lasso and computing the loss function
+    for(i in 1:length(pts.final)){
+      idx <- floor((min(cp.index.list[[i+1]]) + max(cp.index.list[[i]]))/2);
+      phi.hat.list[[i]] <- phi.est.full[[idx]]
+    }
+    idx <- floor((min(cp.index.list[[length(pts.final)+2]]) + max(cp.index.list[[length(pts.final)+1]]))/2);
+    phi.hat.list [[length(pts.final)+1]] <- phi.est.full[[idx]]
+      
+    
+  }
+  
+  
+  
+  return(list(first.selected.points = first.brk.points, second.selected.points = second.brk.points, 
+              final.selected.points = pts.final, 
+              final.selected.points.grid = final.pts.res, 
+              an = an.sel, phi.est.full = phi.est.full, final.phi.hat.list = phi.hat.list )) 
 }
 
 
@@ -286,7 +334,7 @@ bss <- function( data, lambda.1.cv= NULL, lambda.2.cv = NULL, q=1, max.iteration
 #' @param tol tolerance for the fused lasso 
 #' @param cv.index the index of time points for cross-validation
 #' @param blocks the blocks
-#' @return A list oject, which contains the followings
+#' @return A list object, which contains the followings
 #' \describe{
 #'   \item{brk.points}{a set of selected break point after the first block fused lasso step}
 #'   \item{cv}{the cross validation values for tuning parmeter selection}
@@ -407,8 +455,18 @@ first.step.blocks <- function(data.temp, lambda.1.cv, lambda.2.cv, q, max.iterat
   #select the tuning parmaete that has the small cross-validation value
   lll <- min(which(cv == min(cv, na.rm = TRUE)));
   phi.hat.full <- phi.final[[lll]];
+  #compute the estimated phi
+  phi.par.sum <- vector("list", n.new);
+  phi.par.sum[[1]] <- phi.hat.full[, 1:(p*q)];
+  for(i in 2:n.new){
+    phi.par.sum[[i]] <- phi.par.sum[[i-1]] + phi.hat.full[,((i-1)*p*q+1):(i*p*q)];
+  }
+  
 
-  return(list(brk.points = brk.points.final[[lll]], cv = cv, cv1.final = lambda.full[lll,1], cv2.final = lambda.full[lll,2]))
+  return(list(brk.points = brk.points.final[[lll]], cv = cv, 
+              cv1.final = lambda.full[lll,1], cv2.final = lambda.full[lll,2],
+              phi.full = phi.par.sum
+              ))
 }
 
 
@@ -508,10 +566,11 @@ second.step.local <- function(data, eta, q, max.iteration = 1000, tol = 10^(-4),
 }
 
 
+
 #' Compute local loss function.
 #' 
 #' @param data input data matrix, with each column representing the time series component 
-#' @param eta tuning parmaeter eta for lasso
+#' @param eta tuning parameter eta for lasso
 #' @param q the AR order
 #' @param max.iteration max number of iteration for the fused lasso
 #' @param tol tolerance for the fused lasso 
@@ -564,23 +623,22 @@ break.var.local.new <- function(data, eta, q, max.iteration = 1000, tol = 10^(-4
 #' @param tol tolerance for the fused lasso 
 #' @param pts.list the selected break points clustered by a_n after the second step
 #' @param an the neighborhood size a_n
-#' @param eta tuning parmaeter eta for lasso
-#' @return A list oject, which contains the followings
+#' @param eta tuning parameter eta for lasso
+#' @return A list object, which contains the followings
 #' \describe{
 #'   \item{pts}{a set of final selected break point after the third exhaustive search step}
 #' }
-
-third.step.exhaustive <- function(data, q, max.iteration = 1000, tol = tol,  pts.list, an, eta ){
+third.step.exhaustive.old <- function(data, q, max.iteration = 1000, tol = tol,  pts.list, an, eta, refine = TRUE ){
   N <- length(data[,1]); p <- length(data[1,]);
   n <- length(pts.list);  #number of cluster
   final.pts <- rep(0,n);
   pts.list.full <- pts.list
   pts.list.full <- c(1, pts.list.full , N)
-  
+
   #construct the interval for performing the lasso and computing the loss function
   for(i in 1:n){
     pts.temp <- pts.list.full[[i+1]];
-    m <- length(pts.temp); 
+    m <- length(pts.temp);
     if( m <= 1  ) {
       final.pts[i] <- pts.temp;
     }
@@ -599,19 +657,223 @@ third.step.exhaustive <- function(data, q, max.iteration = 1000, tol = tol,  pts
         try <- var_lasso_brk(data = data.temp, eta, q, 1000, tol = tol)
         L.n <- c(L.n , try$pred.error)
       }
-      
+
       sse.full <- rep(0,m)
       for(ii in 1:m ){
         sse.full[ii] = abs(L.n[2*ii-1]  +  L.n[2*ii])
       }
-      
+
       #select the point that has the smallest SSE among the cluster
       final.pts[i] <- pts.list.full[[i+1]][min(which(sse.full == min(sse.full)))];
     }
   }
-  
-  return(pts = final.pts) 
+
+  return(pts = final.pts)
 }
+
+ 
+#' local refinement step (forth step).
+#' 
+#' @description Perform the exhaustive search to select the break point for each cluster. 
+#' 
+#' @param data input data matrix, with each column representing the time series component 
+#' @param q the AR order
+#' @param max.iteration max number of iteration for the fused lasso
+#' @param tol tolerance for the fused lasso 
+#' @param pts.list the selected break points clustered by a_n after the second step
+#' @param an the neighborhood size a_n
+#' @param phi.est.full list of local parameter estimator
+#' @param blocks the blocks
+#' @return A list object, which contains the followings
+#' \describe{
+#'   \item{pts}{a set of final selected break point after the third exhaustive search step}
+#' }
+forth.step.refine <- function(data, q, max.iteration = 1000, tol = tol, pts.list, 
+                              an, phi.est.full = NULL, blocks){
+  N <- length(data[,1]); p <- length(data[1,]);
+  n <- length(pts.list);  #number of cluster
+  n.new <- length(phi.est.full)
+  final.pts <- rep(0, n);
+  pts.list.full <- pts.list
+  pts.list.full <- c(1, pts.list.full , N)
+  phi.hat.list <- vector("list", n + 1)
+  cp.index.list <- vector("list", n + 2);
+  cp.index.list[[1]] <- c(1);
+  cp.index.list[[n+2]] <- c(n.new+1);
+
+    
+  cp.list.full <- vector("list", n+2);
+  cp.list.full[[1]] <- c(1);
+  cp.list.full[[n+2]] <- c(N+1);
+  
+  
+  for(i in 1:n){
+    pts.temp <- pts.list.full[[i+1]];
+    m <- length(pts.temp);
+    if( m <= 1  ) {
+      cp.list.full[[i+1]] <- c((pts.temp-an + 1 ):(pts.temp + an -1) )
+      cp.index.list[[i+1]] <- match(pts.temp, blocks)
+      
+    }
+    if( m > 1  ){
+      cp.list.full[[i+1]] <- c((pts.temp[1] ):(pts.temp[length(pts.temp)]) )
+      cp.index.list[[i+1]] <- match(pts.temp, blocks)
+    }
+  }
+  
+  
+  #construct the interval for performing the lasso and computing the loss function
+  for(i in 1:n){
+    idx <- floor((min(cp.index.list[[i+1]]) + max(cp.index.list[[i]]))/2);
+    phi.hat.list[[i]] <- phi.est.full[[idx]]
+    
+    pts.temp <- pts.list.full[[i+1]];
+    m <- length(pts.temp);
+    
+    #compare the SSE of first num and last num
+    num  = cp.list.full[[i+1]][1]
+    lb.1 <- min(pts.temp) - an;
+    ub.1 <- num - 1;
+    len.1 <- ub.1 - lb.1 + 1;
+    idx.1 <- floor((min(cp.index.list[[i+1]]) + max(cp.index.list[[i]]))/2) ;
+    phi.hat <- phi.est.full[[idx.1]]
+    forecast <- sapply(c(lb.1:ub.1), function(jjj) pred(t(data), matrix(phi.hat, ncol = p*q), q, jjj-1 , p, 1) )
+    if(len.1 == 1){
+      temp.1 <- sum( (data[lb.1:ub.1,]-forecast)^2 );
+    }else{
+      temp.1 <- sum( (t(data[lb.1:ub.1,])-forecast)^2 );
+    }
+    
+    
+    lb.2 <- num ;
+    ub.2 <- max(pts.temp) +  an -1;
+    len.2 <- ub.2 - lb.2 + 1;
+    idx.2 <- floor((min(cp.index.list[[i+2]]) + max(cp.index.list[[i+1]]))/2) ;
+    phi.hat <- phi.est.full[[idx.2]]
+    forecast <- sapply(c(lb.2:ub.2), function(jjj) pred(t(data), matrix(phi.hat, ncol = p*q), q, jjj-1 , p, 1) )
+    if(len.2 == 1){
+      temp.2 <- sum( ( data[lb.2:ub.2,]-forecast)^2 );
+    }else{
+      temp.2 <- sum( (t(data[lb.2:ub.2,])-forecast)^2 );
+    }
+    
+    sse1 <- temp.1 + temp.2;
+    num  <- cp.list.full[[i+1]][length(cp.list.full[[i+1]])]
+    lb.1 <- min(pts.temp) - an;
+    ub.1 <- num - 1;
+    len.1 <- ub.1 - lb.1 + 1;
+    idx.1 <- floor((min(cp.index.list[[i+1]]) + max(cp.index.list[[i]]))/2) ;
+    phi.hat <- phi.est.full[[idx.1]]
+    forecast <- sapply(c(lb.1:ub.1), function(jjj) pred(t(data), matrix(phi.hat, ncol = p*q), q, jjj-1 , p, 1) )
+    if(len.1 == 1){
+      temp.1 <- sum( (data[lb.1:ub.1,]-forecast)^2 );
+    }else{
+      temp.1 <- sum( (t(data[lb.1:ub.1,])-forecast)^2 );
+    }
+    
+    lb.2 <- num ;
+    ub.2 <- max(pts.temp) + an -1;
+    len.2 <- ub.2 - lb.2 + 1;
+    idx.2 <- floor((min(cp.index.list[[i+2]]) + max(cp.index.list[[i+1]]))/2) ;
+    phi.hat <- phi.est.full[[idx.2]]
+    forecast <- sapply(c(lb.2:ub.2), function(jjj) pred(t(data), matrix(phi.hat, ncol = p*q), q, jjj-1 , p, 1) )
+    if(len.2 == 1){
+      temp.2 <- sum( ( data[lb.2:ub.2,]-forecast)^2 );
+    }else{
+      temp.2 <- sum( (t(data[lb.2:ub.2,])-forecast)^2 );
+    }
+    sse2 <- temp.1 + temp.2;
+    
+    
+    if(sse1 <= sse2){
+      sse.full <- 0;
+      ii <- 0
+      for(num in cp.list.full[[i+1]]  ){
+        ii <- ii + 1
+        lb.1 <- min(pts.temp) - an;
+        ub.1 <- num - 1;
+        len.1 <- ub.1 - lb.1 + 1;
+        idx.1 <- floor((min(cp.index.list[[i+1]]) + max(cp.index.list[[i]]))/2) ;
+        phi.hat <- phi.est.full[[idx.1]]
+        forecast <- sapply(c(lb.1:ub.1), function(jjj) pred(t(data), matrix(phi.hat, ncol = p*q), q, jjj-1 , p, 1) )
+        if(len.1 == 1){
+          temp.1 <- sum( (data[lb.1:ub.1,]-forecast)^2 );
+        }else{
+          temp.1 <- sum( (t(data[lb.1:ub.1,])-forecast)^2 );
+        }
+        
+        lb.2 <- num ;
+        ub.2 <- max(pts.temp) +  an - 1;
+        len.2 <- ub.2 - lb.2 + 1;
+        idx.2 <- floor((min(cp.index.list[[i+2]]) + max(cp.index.list[[i+1]]))/2) ;
+        phi.hat <- phi.est.full[[idx.2]]
+        forecast <- sapply(c(lb.2:ub.2), function(jjj) pred(t(data), matrix(phi.hat, ncol = p*q), q, jjj-1 , p, 1) )
+        if(len.2 == 1){
+          temp.2 <- sum( ( data[lb.2:ub.2,]-forecast)^2 );
+        }else{
+          temp.2 <- sum( (t(data[lb.2:ub.2,])-forecast)^2 );
+        }
+        sse.full[ii] <- temp.1 + temp.2;
+        # print(ii)
+        # print(sse.full[ii])
+        if(ii >= min(round(3/2*an), length(cp.list.full[[i+1]])) && sse.full[ii] >=  quantile(sse.full, 0.20) ){
+          break
+        }
+      }
+      #select the point that has the smallest SSE among the cluster
+      final.pts[i] <- cp.list.full[[i+1]][min(which(sse.full == min(sse.full)))];
+    }
+    if(sse1 > sse2){
+      sse.full <- 0;
+      ii <- 0
+      for(num in rev(cp.list.full[[i+1]])  ){
+        ii <- ii + 1
+        lb.1 <- min(pts.temp) - an;
+        ub.1 <- num - 1;
+        len.1 <- ub.1 - lb.1 + 1;
+        idx.1 <- floor((min(cp.index.list[[i+1]]) + max(cp.index.list[[i]]))/2) ;
+        phi.hat <- phi.est.full[[idx.1]]
+        forecast <- sapply(c(lb.1:ub.1), function(jjj) pred(t(data), matrix(phi.hat, ncol = p*q), q, jjj-1 , p, 1) )
+        if(len.1 == 1){
+          temp.1 <- sum( (data[lb.1:ub.1,]-forecast)^2 );
+          
+        }else{
+          temp.1 <- sum( (t(data[lb.1:ub.1,])-forecast)^2 );
+        }
+        
+        
+        lb.2 <- num ;
+        ub.2 <- max(pts.temp) +  an -1;
+        len.2 <- ub.2 - lb.2 + 1;
+        idx.2 <- floor((min(cp.index.list[[i+2]]) + max(cp.index.list[[i+1]]))/2) ;
+        phi.hat <- phi.est.full[[idx.2]]
+        forecast <- sapply(c(lb.2:ub.2), function(jjj) pred(t(data), matrix(phi.hat, ncol = p*q), q, jjj-1 , p, 1) )
+        if(len.2 == 1){
+          temp.2 <- sum( (data[lb.2:ub.2,]-forecast)^2 );
+        }else{
+          temp.2 <- sum( (t(data[lb.2:ub.2,])-forecast)^2 );
+        }
+        sse.full[ii] <- temp.1 + temp.2;
+        if(ii >= min(round(3/2*an), length(cp.list.full[[i+1]])) && sse.full[ii] >=  quantile(sse.full,0.20) ){
+          break
+        }
+      }
+      #select the point that has the smallest SSE among the cluster
+      final.pts[i] <- cp.list.full[[i+1]][length(cp.list.full[[i+1]]) + 1 - min(which(sse.full == min(sse.full)))];
+      
+    }
+    
+    
+    
+  }
+  
+
+  idx <- floor((min(cp.index.list[[n+2]]) + max(cp.index.list[[n+1]]))/2);
+  phi.hat.list [[n+1]] <- phi.est.full[[idx]]
+  return( list(pts = final.pts, phi.hat.list = phi.hat.list ))
+}
+
+
 
 
 #' cluster the points by neighborhood size a_n

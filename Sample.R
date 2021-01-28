@@ -22,7 +22,7 @@ q.t <- 1; # the true AR order
 
 ########## Phi Gneration #########################
 m <- m0+1
-phi.full <- matrix(0,p,p*q.t*m)
+phi.full <- matrix(0, p, p*q.t*m)
 aa <- 0.8
 set.seed(123456)
 for(mm in 1 : m){
@@ -47,7 +47,7 @@ print(plot.matrix((phi.full), m))
 #####################################################
 set.seed(123456)
 e.sigma <- as.matrix(1*diag(p));
-try=var.sim.break(T, arlags=q.t, malags=NULL, phi=phi.full, sigma=e.sigma,brk = brk)
+try=var.sim.break(T, arlags=q.t, malags=NULL, phi=phi.full, sigma=e.sigma, brk = brk)
 data <- try$series
 data <- as.matrix(data)
 
@@ -55,10 +55,26 @@ data <- as.matrix(data)
 ######## block segmentation scheme (BSS)    ##########
 ######################################################
 #run the bss method
-temp <- bss(data)
+ptm <- proc.time()
+temp <- bss(data, refine = FALSE)
+proc.time() - ptm
 
 #display the estimated break points
 print("Estimated break points:")
 print(temp$final.selected.points)
+#display the true break points
+print("True break points:")
+print(brk[-length(brk)])
 
+#run the bss method
+ptm <- proc.time()
+temp.2 <- bss(data, refine = TRUE)
+proc.time() - ptm
+
+#display the estimated break points
+print("Estimated break points:")
+print(temp.2$final.selected.points)
+#display the true break points
+print("True break points:")
+print(brk[-length(brk)])
 

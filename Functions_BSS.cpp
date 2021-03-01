@@ -1,3 +1,5 @@
+#include <omp.h>
+// [[Rcpp::plugins(openmp)]]
 // [[Rcpp::depends(RcppArmadillo)]]
 // [[Rcpp::plugins("cpp11")]]
 #include <RcppArmadillo.h>
@@ -399,3 +401,85 @@ List lambda_warm_up(NumericMatrix data, int q, NumericVector blocks, NumericVect
 }
 
 
+
+// [[Rcpp::export]]
+List local_refine(NumericMatrix data, int q, NumericVector blocks, 
+                    NumericVector nums, int lb1, int ub2, NumericMatrix phi_hat_1, NumericMatrix phi_hat_2 ){
+                        
+    int num_len = nums.length();
+    int k = data.ncol(); int T = data.nrow(); 
+    mat data_m(data.begin(), T, k);
+    mat phi_hat_1_m(phi_hat_1.begin(), k, k*q);
+    mat phi_hat_2_m(phi_hat_2.begin(), k, k*q);
+    vec sse_full =  zeros<vec>(num_len);
+    omp_set_num_threads(4);
+    #pragma omp parallel for
+        for (int ll = 0; ll < num_len; ll++ ){
+            int num = nums(ll);
+            int ub1 = num - 1;
+            int len1 =  ub1 - lb1 + 1;
+            mat forecast1 (k, len1, fill::zeros); 
+            for(int j = 0; j < len1; j++){
+                int jjj = lb1 + j;
+                forecast1(span::all, j) = pred_cpp( data_m.t(), phi_hat_1_m , q , jjj - 1, k, 1); 
+                // Rcout <<  forecast1(span::all, j); 
+                        
+            }
+            
+            double pred_error_1 = accu( pow(  data_m( span( lb1-1 , ub1-1), span::all).t() - forecast1 , 2) );
+            // Rcout << pred_error_1;
+
+            int lb2 = num ;
+            int len2 = ub2 - lb2 + 1;
+
+            mat forecast2 (k, len2, fill::zeros); 
+            for(int j = 0; j < len2; j++){
+                int jjj = lb2 + j;
+                forecast2(span::all, j) = pred_cpp( data_m.t(), phi_hat_2_m , q , jjj - 1, k, 1); 
+                // Rcout <<  forecast2(span::all, j); 
+                        
+            }
+            
+            double pred_error_2 = accu( pow(  data_m( span( lb2-1 , ub2-1), span::all).t() - forecast2 , 2) );
+            // Rcout << pred_error_2;
+
+            sse_full(ll) = pred_error_1 + pred_error_2;
+
+        }
+    // for (int ll = 0; ll < num_len; ll++ ){
+    //     int num = nums(ll);
+    //     int ub1 = num - 1;
+    //     int len1 =  ub1 - lb1 + 1;
+    //     mat forecast1 (k, len1, fill::zeros); 
+    //     for(int j = 0; j < len1; j++){
+    //         int jjj = lb1 + j;
+    //         forecast1(span::all, j) = pred_cpp( data_m.t(), phi_hat_1_m , q , jjj - 1, k, 1); 
+    //         // Rcout <<  forecast1(span::all, j); 
+                     
+    //     }
+        
+    //     double pred_error_1 = accu( pow(  data_m( span( lb1-1 , ub1-1), span::all).t() - forecast1 , 2) );
+    //     // Rcout << pred_error_1;
+
+    //     int lb2 = num ;
+    //     int len2 = ub2 - lb2 + 1;
+
+    //     mat forecast2 (k, len2, fill::zeros); 
+    //     for(int j = 0; j < len2; j++){
+    //         int jjj = lb2 + j;
+    //         forecast2(span::all, j) = pred_cpp( data_m.t(), phi_hat_2_m , q , jjj - 1, k, 1); 
+    //         // Rcout <<  forecast2(span::all, j); 
+                     
+    //     }
+        
+    //     double pred_error_2 = accu( pow(  data_m( span( lb2-1 , ub2-1), span::all).t() - forecast2 , 2) );
+    //     // Rcout << pred_error_2;
+
+    //     sse_full(ll) = pred_error_1 + pred_error_2;
+
+    // }
+
+
+    return List::create(Named("sse_full")= sse_full);
+
+}

@@ -56,24 +56,12 @@ data <- as.matrix(data)
 ######################################################
 #run the bss method
 ptm <- proc.time()
-temp <- bss(data, refine = FALSE)
+temp <- bss(data)
 proc.time() - ptm
 
 #display the estimated break points
 print("Estimated break points:")
 print(temp$final.selected.points)
-#display the true break points
-print("True break points:")
-print(brk[-length(brk)])
-
-#run the bss method
-ptm <- proc.time()
-temp.2 <- bss(data, refine = TRUE)
-proc.time() - ptm
-
-#display the estimated break points
-print("Estimated break points:")
-print(temp.2$final.selected.points)
 #display the true break points
 print("True break points:")
 print(brk[-length(brk)])

@@ -1,0 +1,125 @@
+---
+title: "Instruction and an Example of BSS Algorithm"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Setting Up
+
+Before implementing the algorithm, we need the following set up:
+
+* Install required packages and load packages.
+* Call functions from .R file and .cpp files
+    + "Functions_BSS.R"
+    + "Functions_BSS.cpp"
+
+```{r,eval=FALSE}
+install.packages("mvtnorm")
+install.packages("lattice")
+install.packages("Rcpp")
+install.packages("RcppArmadillo")
+```
+
+```{r}
+library("mvtnorm")
+library("lattice")
+library("Rcpp")
+library("RcppArmadillo")
+```
+
+```{r}
+source("Functions_BSS.R")
+#cpp code for block fused lasso and block lasso
+sourceCpp("Functions_BSS.cpp")
+```
+
+
+## Simulation Scenario Setting
+
+In order to generating the VAR time series data, the following arguments are required:
+
+* $\texttt{T}$: the number of time points
+* $\texttt{p}$: the number of time series components
+* $\texttt{brk}$: the true break points with $T+1$ as the last element
+* $\texttt{m0}$: the true number of break points
+* $\texttt{q.t}$: the true AR order
+* $\texttt{phi.full}$: the true AR coefficient matrix
+
+Here is an example setting of Scenario A.2 in the manuscript. In this setting, $T = 10,000$, $p = 10$, $q.t = 1$, $m0 = 2$, two break points $t_1 = \lfloor \frac{T}{3} \rfloor = 3333$, $t_2 =  \lfloor \frac{2T}{3} \rfloor  = 6666$ and the autoregressive coefficients are chosen to have the random structure, with entries $-0.8$, $0.8$, $-0.8$.
+
+
+```{r}
+########## General Settings ######################
+T <- (10^4); #number of time points
+p <- 10; # number of time series components
+brk <- c(floor(T/3),floor(2*T/3),T+1); # true break points with T+1 as the last element
+m0 <- length(brk) -1; # number of break points
+q.t <- 1; # the true AR order
+
+########## Phi Gneration #########################
+m <- m0+1
+phi.full <- matrix(0,p,p*q.t*m)
+aa <- 0.8
+set.seed(123456)
+for(mm in 1 : m){
+  phi.full[,((mm-1)*q.t*p+1):((mm)*q.t*p)] <- 0
+  for (j in 1:(p-1)){
+    bool_1 <- sample(0:2,1,prob = c(0.2,0.6,0.2))
+    x_shift = sample(0:4,2)
+    if (bool_1 > 0 &&  (j +  x_shift[1:bool_1] <= p) ){
+      phi.full[j,((mm-1)*q.t*p+j +  x_shift[1:bool_1])] <- -aa
+    }
+  }
+  if(mm %% 2 == 0 ){
+    phi.full[,((mm-1)*q.t*p+1):((mm)*q.t*p)]  <- -phi.full[,((mm-1)*q.t*p+1):((mm)*q.t*p)]
+  }
+}  
+
+#display the true AR coefficients matrice
+print(plot.matrix((phi.full), m))
+```
+
+## Data Generation
+
+After setting the general arguments described above, we can now generate the time series data by using the function  $\texttt{var.sim.break()}$ as follows. Here, the covariance matrix of the noise process $\Sigma_\varepsilon = I_T$ (where $I_T$ stands for the identity matrix). 
+
+```{r}
+set.seed(123456)
+e.sigma <- as.matrix(1*diag(p));
+try=var.sim.break(T, arlags=q.t, phi=phi.full, sigma=e.sigma,brk = brk)
+data <- try$series
+data <- as.matrix(data)
+```
+
+## Block Segmentation Scheme (BSS) Implementation 
+
+After data generataion, we now perform the block segmentation scheme (BSS) algorithm to detect the structural breaks in large scale high-dimensional non-stationary VAR models. The BSS algorithm mainly contains three steps:
+
+* First step: initial break points selection by block fused lasso.
+* Second step: local screening by minimizing a localized information criterion (LIC) to eliminate candidate break points that are located far from any true break points. 
+* Third step: exhaustive search by comparing SSE for each candidate point in a given cluster and keeping one break point in each cluster. 
+
+The proposed BSS algorithm in the manuscript is implemented by the function $\texttt{bss()}$. The only input argument is the time series data, with each column representing the time series component.  
+```{r}
+#run the bss method
+temp <- bss(data)
+
+#display the estimated break points
+print("Estimated break points:")
+print(temp$final.selected.points)
+```
+
+## Optional Arguments and Default Values
+
+In addition to the argument $\texttt{data}$  which was described above, there are other optional arguments for the function $\texttt{bss()}$ which are listed below: 
+
+* $\texttt{lambda.1.cv}$: the tuning parmaeter $\lambda_1$ for fused lasso. By default, $\texttt{lambda.1.cv}$ is a vector with decreasing values constructed based on the time series data, the number of time series components $\texttt{p}$, and the block size $\texttt{block.size}$.
+* $\texttt{lambda.2.cv}$: the tuning parmaeter $\lambda_2$ for fused lasso. By default, $\texttt{lambda.2.cv}$ is a vector with decreasing values constructed based on the  number of time points $\texttt{T}$ and the number of time series components $\texttt{p}$. 
+* $\texttt{q}$: the AR order. By default, $\texttt{q}$ = 1.
+* $\texttt{max.iteration}$: the max number of iteration for the fused lasso. By default, $\texttt{max.iteration}$ = 100. 
+* $\texttt{tol}$: tolerance for the fused lasso. By default, $\texttt{tol}$ = $10^{-2}$. 
+* $\texttt{block.size}$: the block size $b_n$. By default, $b_n= \lfloor \sqrt{T} \rfloor$.
+* $\texttt{blocks}$: the blocks (sequence). By default, $\texttt{blocks = seq(0,T,block.size)}$. One could also use $\texttt{blocks}$ to handle varying-size blocks. For example, $\texttt{blocks= c(seq(0,5000,100), seq(5200,10000,200))}$. 

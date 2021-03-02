@@ -69,7 +69,7 @@ sp_density <- c(0.05, 0.10, 0.07) #sparsity level (in percentage)
 
 ## Data Generation
 
-After setting the general arguments described above, we can now generate the time series data by using the function  $\texttt{simu_var()}$ as follows. Here, the covariance matrix of the noise process $\Sigma_\varepsilon = I_T$ (where $I_T$ stands for the identity matrix). 
+After setting the general arguments described above, we can now generate the time series data by using the function  $\texttt{simu\_var()}$ as follows. Here, the covariance matrix of the noise process $\Sigma_\varepsilon = I_T$ (where $I_T$ stands for the identity matrix). 
 
 ```{r}
 #randomly generate transition matrix and timeseries data

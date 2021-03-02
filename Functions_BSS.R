@@ -1,3 +1,252 @@
+
+
+#' Generate VAR(p) model data with break points
+#'
+#' @description This function is used for generate simulated time series
+#' @param method the structure of time series, here we have pure sparse and low rank plus sparse
+#' @param nobs sample size
+#' @param k dimension of transition matrix
+#' @param arlags lags sequence of VAR time series
+#' @param brk a list of break points
+#' @param sp_pattern a choice of the pattern of sparse component: diagonal, 1-off diagonal, or random
+#' @param sp_density if we choose random pattern, we should provide the sparsity density for each segment
+#' @param rank if we choose method is low rank plus sparse, we need to provide the ranks for each segment
+#' @param info_ratio the information ratio leverages the signal strength from low rank and sparse components
+#' @param signals manually setting signal for each segment
+#' @param singular_vals singular values for the low rank components
+#' @param spectral_radius to ensure the time series is piecewise stationary, the radius should be less than 1, it can be customized.
+#' @param sigma the variance matrix for error term
+#' @param skip an argument to control the leading data points to obtain a stationary time series
+#' @return A list object, which contains the followings
+#' \describe{
+#'   \item{series_y}{matrix of timeseries data}
+#'   \item{sparse_mats}{list of sparse matrix in the transition matrix}
+#'   \item{lowrank_mats}{list of low-rank matrix in the transition matrix}
+#' }
+#' @import mvtnorm
+#' @import igraph
+#' @import pracma
+#' @export
+simu_var <- function(method=c('sparse'), nobs=300, k=20, arlags=NULL, brk, sp_pattern= 'off-diagonal', sp_density=NULL, rank=NULL, 
+                     info_ratio=NULL, signals=NULL, singular_vals = NULL, spectral_radius=0.98, sigma=NULL, skip=50, seed = 1){
+  set.seed(seed)  
+  ### Error conditions
+  m <- length(brk)
+  if (!(method %in% c('sparse', 'LS'))){
+    print("Error: the method should be sparse or lowrank plus sparse.")
+    break
+  }
+  if (spectral_radius > 1){
+    print("Error: the spectral radius should be less than 1!")
+    break
+  }
+  if(is.null(sigma)){
+    sigma <- as.matrix(1*diag(k))
+  }
+  if(is.null(signals)){
+    signals <- rep(0.8, m)
+  }
+  
+  
+  if (!is.matrix(sigma)){
+    sigma <- as.matrix(sigma)
+  }
+  
+  ###### Pure sparse structure for model parameter ######
+  phi_mats <- vector('list', m)
+  if (method == 'sparse'){
+    sparse_mats <- vector('list', m)
+    if (!(sp_pattern %in% c("diagonal", "off-diagonal", "random"))){
+      print("Error: the sparsity pattern should be determined correctly!")
+      break
+    }
+    
+    if (sp_pattern == "diagonal"){
+      for (j in 1:m){
+        sparse_mats[[j]] <- (-1)^j * signals[j] * diag(k)
+      }
+    }
+    
+    if (sp_pattern == 'off-diagonal'){
+      for (j in 1:m){
+        sparse_mats[[j]] <- matrix(0, k, k)
+        for (r in 1:(k-1)){
+          sparse_mats[[j]][r,r+1] <- (-1)^j * signals[j]
+        }
+      }
+    }
+    
+    if (sp_pattern == 'random'){
+      if (length(sp_density) != m){
+        print("Error: the length of sparsity density doesn't match!")
+        break
+      }
+      for (j in 1:m){
+        g <- erdos.renyi.game(k, sp_density[j], type="gnp",directed = TRUE)
+        adj_mat <- as.matrix(get.adjacency(g))
+        sparse_mats[[j]] <- (-1)^j * signals[j] * adj_mat
+      }
+    }
+    
+    # examine if each segment is stationary, we force the spectral radius to be 0.9. 
+    max_eigen <- rep(0, m)
+    phi <- NULL
+    for (j in 1:(m)){
+      max_eigen[j] <- max(abs(svd(sparse_mats[[j]])$d))
+      #print(max_eigen[j] )
+      # if the current segment is not stable, we rescale the spectral radius
+      if (max_eigen[j] >= 1){
+        phi_mats[[j]] <- sparse_mats[[j]] * spectral_radius / max_eigen[j]
+        sparse_mats[[j]] <- phi_mats[[j]]
+      }else{
+        phi_mats[[j]] <- sparse_mats[[j]]
+      }
+      phi <- cbind(phi, phi_mats[[j]])
+    }
+  }
+  
+  ###### Low rank plus sparse structure model parameter ######
+  lowrank_mats = NULL
+  if (method == 'LS'){
+    if (length(rank) != m){
+      print("Error: the length of ranks doesn't match!")
+      break
+    }
+    
+    # generate sparse components
+    sparse_mats <- vector('list', m)
+    if (!(sp_pattern %in% c("diagonal", "off-diagonal", "random"))){
+      print("Error: the sparsity pattern should be determined correctly!")
+      break
+    }
+    
+    if (sp_pattern == "diagonal"){
+      for (j in 1:m){
+        sparse_mats[[j]] <- (-1)^j * signals[j] * diag(k)
+      }
+    }
+    
+    if (sp_pattern == 'off-diagonal'){
+      for (j in 1:m){
+        sparse_mats[[j]] <- matrix(0, k, k)
+        for (r in 1:(k-1)){
+          sparse_mats[[j]][r,r+1] <- (-1)^j * signals[j]
+        }
+      }
+    }
+    
+    if (sp_pattern == 'random'){
+      for (j in 1:m){
+        g <- erdos.renyi.game(k, sp_density[j], type="gnp")
+        adj_mat <- as.matrix(get.adjacency(g))
+        sparse_mats[[j]] <- (-1)^j * signals[j] * adj_mat
+      }
+      
+    }
+    
+    # generate low rank components
+    lowrank_mats <- vector('list', m)
+    for (j in 1:m){
+      L_basis <- randortho(k)
+      lowrank_mats[[j]] <- matrix(0, k, k)
+      for (rk in 1:(rank[j])){
+        lowrank_mats[[j]] <- lowrank_mats[[j]] + singular_vals[rk] * (L_basis[,rk] %*% t(L_basis[,rk]))
+      }
+      lowrank_mats[[j]] <- (signals[j] * info_ratio[j] / max(lowrank_mats[[j]])) * lowrank_mats[[j]]
+    }
+    
+    # combine sparse and low rank components together
+    for (j in 1:m){
+      phi_mats[[j]] <- sparse_mats[[j]] + lowrank_mats[[j]]
+    }
+    
+    # examine if each segment is stationary, we force the spectral radius to be 0.9. 
+    max_eigen <- rep(0, m)
+    phi <- NULL
+    for (j in 1:m){
+      max_eigen[j] <- max(abs(svd(phi_mats[[j]])$d))
+      if (max_eigen[j] >= 1){
+        phi_mats[[j]] <- phi_mats[[j]] * spectral_radius / max_eigen[j]
+        sparse_mats[[j]] <- sparse_mats[[j]] * spectral_radius / max_eigen[j]
+        lowrank_mats[[j]] <- lowrank_mats[[j]] * spectral_radius / max_eigen[j]
+      }
+      phi <- cbind(phi, phi_mats[[j]])
+    }
+  }
+  
+  
+  ### generate time series with respect to the transition matrices
+  n <- nobs + skip
+  at <- rmvnorm(n, rep(0, k), sigma)
+  nar <- length(arlags)
+  p <- 0
+  if (nar > 0){
+    arlags <- sort(arlags)
+    p <- arlags[nar]
+  }
+  ist <- p+1
+  zt <- matrix(0, n, k)
+  
+  # case 1: there is only one single change point
+  if (m == 1){
+    for (it in ist:n){
+      tmp <- matrix(at[it,], 1, k)
+      if (nar > 0){
+        for (i in 1:nar){
+          idx <- (i-1) * k
+          phj <- phi[,(idx+1):(idx+k)]
+          ztm <- matrix(zt[it - arlags[i], ], 1, k)
+          tmp <- tmp + ztm %*% t(phj)
+        }
+      }
+      zt[it, ] = tmp
+    }
+  }
+  
+  # case 2: there are multiple change points
+  if (m > 1){
+    for (it in ist:(skip+brk[1]-1)){
+      tmp <- matrix(at[it,], 1, k)
+      if (nar > 0){
+        for (i in 1:nar){
+          idx <- (i-1) * k
+          phj <- phi[, (idx+1):(idx+k)]
+          ztm <- matrix(zt[it - arlags[i], ], 1, k)
+          tmp <- tmp + ztm %*% t(phj)
+        }
+      }
+      zt[it, ] <- tmp
+    }
+    for (mm in 1:(m-1)){
+      for (it in (skip+brk[mm]):(skip+brk[mm+1]-1)){
+        tmp <- matrix(at[it, ], 1, k)
+        if (nar > 0){
+          for (i in 1:nar){
+            idx <- (i-1) * k
+            phj <- phi[, (mm*p*k+idx + 1):(mm*p*k+idx + k)]
+            ztm <- matrix(zt[it - arlags[i], ], 1, k)
+            tmp <- tmp + ztm %*% t(phj)
+          }
+        }
+        zt[it, ] <- tmp
+      }
+    }
+  }
+  
+  # return the list
+  zt <- zt[(1+skip):n, ]
+  at <- at[(1+skip):n, ]
+  if (method == 'sparse'){
+    simulated_var <- list(series = zt, noises = at, model_param = sparse_mats)
+  }
+  if (method == 'LS'){
+    simulated_var <- list(series = zt, noises = at, sparse_param = sparse_mats, lowrank_param = lowrank_mats)
+  }
+  return(simulated_var)
+  # return(list( series_y = simulated_var, sparse_mats = sparse_mats, lowrank_mats= lowrank_mats )  )
+}
+
+
 # show distinct color for positive and negative value
 plot.matrix <- function (phi, p, name = NULL) {
   B <- phi
@@ -374,8 +623,8 @@ bss <- function(data, lambda.1.cv = NULL, lambda.2.cv = NULL, q = 1,
   print("first.brk.points:")
   print(first.brk.points)
   phi.est.full <- temp.first$phi.full
-  print("cv values:")
-  print(temp.first$cv)
+  #print("cv values:")
+  #print(temp.first$cv)
   print("selected lambda1:")
   print(temp.first$cv1.final)
   print("selected lambda2:")

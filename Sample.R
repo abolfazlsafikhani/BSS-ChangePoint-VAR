@@ -5,6 +5,8 @@ gc()
 ######## Loading Packages #######################
 library("mvtnorm")
 library("lattice")
+library("igraph")
+library("pracma")
 library("Rcpp")
 library("RcppArmadillo")
 
@@ -14,40 +16,21 @@ source("Functions_BSS.R")
 sourceCpp("Functions_BSS.cpp")
 
 ########## General Settings ######################
-T <- (10^4); #number of time points
+T <- (10^3*4); #number of time points
 p <- 10; # number of time series components
 brk <- c(floor(T/3),floor(2*T/3),T+1); # true break points with T+1 as the last element
 m0 <- length(brk) -1; # number of break points
 q.t <- 1; # the true AR order
-
-########## Phi Gneration #########################
-m <- m0+1
-phi.full <- matrix(0, p, p*q.t*m)
-aa <- 0.8
-set.seed(123456)
-for(mm in 1 : m){
-  phi.full[,((mm-1)*q.t*p+1):((mm)*q.t*p)] <- 0
-  for (j in 1:(p-1)){
-    bool_1 <- sample(0:2,1,prob = c(0.2,0.6,0.2))
-    x_shift = sample(0:4,2)
-    if (bool_1 > 0 &&  (j +  x_shift[1:bool_1] <= p) ){
-      phi.full[j,((mm-1)*q.t*p+j +  x_shift[1:bool_1])] <- -aa
-    }
-  }
-  if(mm %% 2 == 0 ){
-    phi.full[,((mm-1)*q.t*p+1):((mm)*q.t*p)]  <- -phi.full[,((mm-1)*q.t*p+1):((mm)*q.t*p)]
-  }
-}  
-
-#display the true AR coefficients matrice
-print(plot.matrix((phi.full), m))
+m <- m0+1 #number of segments
+sp_density <- c(0.05, 0.05, 0.05) #sparsity level (5%)
 
 #####################################################
 ########## Data Generation       ####################
 #####################################################
-set.seed(123456)
-e.sigma <- as.matrix(1*diag(p));
-try=var.sim.break(T, arlags=q.t, malags=NULL, phi=phi.full, sigma=e.sigma, brk = brk)
+#randomly generate transition matrix and timeseries data
+try <- simu_var(method = 'sparse', nobs = T, k=p, sp_pattern= 'random', arlags=seq(1,q.t,1),
+                brk=brk, sp_density = sp_density , seed = 1 )
+print(plot.matrix(do.call("cbind",try$model_param), m ))
 data <- try$series
 data <- as.matrix(data)
 

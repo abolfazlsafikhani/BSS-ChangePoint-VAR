@@ -19,6 +19,8 @@ Before implementing the algorithm, we need the following set up:
 ```{r,eval=FALSE}
 install.packages("mvtnorm")
 install.packages("lattice")
+install.packages("igraph")
+install.packages("pracma")
 install.packages("Rcpp")
 install.packages("RcppArmadillo")
 ```
@@ -26,6 +28,8 @@ install.packages("RcppArmadillo")
 ```{r}
 library("mvtnorm")
 library("lattice")
+library("igraph")
+library("pracma")
 library("Rcpp")
 library("RcppArmadillo")
 ```
@@ -48,38 +52,18 @@ In order to generating the VAR time series data, the following arguments are req
 * $\texttt{q.t}$: the true AR order
 * $\texttt{phi.full}$: the true AR coefficient matrix
 
-Here is an example setting of Scenario A.2 in the manuscript. In this setting, $T = 10,000$, $p = 10$, $q.t = 1$, $m0 = 2$, two break points $t_1 = \lfloor \frac{T}{3} \rfloor = 3333$, $t_2 =  \lfloor \frac{2T}{3} \rfloor  = 6666$ and the autoregressive coefficients are chosen to have the random structure, with entries $-0.8$, $0.8$, $-0.8$.
+Here is an example setting of Scenario A.2 in the manuscript. In this setting, $T = 4,000$, $p = 10$, $q.t = 1$, $m0 = 2$, two break points $t_1 = \lfloor \frac{T}{3} \rfloor = 1333$, $t_2 =  \lfloor \frac{2T}{3} \rfloor  = 2666$ and the autoregressive coefficients are chosen to have the random structure and entries.
 
 
 ```{r}
 ########## General Settings ######################
-T <- (10^4); #number of time points
+T <- (10^3*4); #number of time points
 p <- 10; # number of time series components
 brk <- c(floor(T/3),floor(2*T/3),T+1); # true break points with T+1 as the last element
 m0 <- length(brk) -1; # number of break points
 q.t <- 1; # the true AR order
-
-########## Phi Gneration #########################
-m <- m0+1
-phi.full <- matrix(0,p,p*q.t*m)
-aa <- 0.8
-set.seed(123456)
-for(mm in 1 : m){
-  phi.full[,((mm-1)*q.t*p+1):((mm)*q.t*p)] <- 0
-  for (j in 1:(p-1)){
-    bool_1 <- sample(0:2,1,prob = c(0.2,0.6,0.2))
-    x_shift = sample(0:4,2)
-    if (bool_1 > 0 &&  (j +  x_shift[1:bool_1] <= p) ){
-      phi.full[j,((mm-1)*q.t*p+j +  x_shift[1:bool_1])] <- -aa
-    }
-  }
-  if(mm %% 2 == 0 ){
-    phi.full[,((mm-1)*q.t*p+1):((mm)*q.t*p)]  <- -phi.full[,((mm-1)*q.t*p+1):((mm)*q.t*p)]
-  }
-}  
-
-#display the true AR coefficients matrice
-print(plot.matrix((phi.full), m))
+m <- m0+1 #number of segments
+sp_density <- c(0.05, 0.05, 0.05) #sparsity level (5%)
 ```
 
 ## Data Generation
@@ -87,11 +71,14 @@ print(plot.matrix((phi.full), m))
 After setting the general arguments described above, we can now generate the time series data by using the function  $\texttt{var.sim.break()}$ as follows. Here, the covariance matrix of the noise process $\Sigma_\varepsilon = I_T$ (where $I_T$ stands for the identity matrix). 
 
 ```{r}
-set.seed(123456)
-e.sigma <- as.matrix(1*diag(p));
-try=var.sim.break(T, arlags=q.t, phi=phi.full, sigma=e.sigma,brk = brk)
+#randomly generate transition matrix and timeseries data
+try <- simu_var(method = 'sparse', nobs = T, k=p, sp_pattern= 'random', arlags=seq(1,q.t,1),
+                brk=brk, sp_density = sp_density , seed = 1 )
+#display the true AR coefficients matrice
+print(plot.matrix(do.call("cbind",try$model_param), m ))
 data <- try$series
 data <- as.matrix(data)
+
 ```
 
 ## Block Segmentation Scheme (BSS) Implementation 
@@ -110,6 +97,9 @@ temp <- bss(data)
 #display the estimated break points
 print("Estimated break points:")
 print(temp$final.selected.points)
+#display the true break points
+print("True break points:")
+print(brk[-length(brk)])
 ```
 
 ## Optional Arguments and Default Values
@@ -119,7 +109,10 @@ In addition to the argument $\texttt{data}$  which was described above, there ar
 * $\texttt{lambda.1.cv}$: the tuning parmaeter $\lambda_1$ for fused lasso. By default, $\texttt{lambda.1.cv}$ is a vector with decreasing values constructed based on the time series data, the number of time series components $\texttt{p}$, and the block size $\texttt{block.size}$.
 * $\texttt{lambda.2.cv}$: the tuning parmaeter $\lambda_2$ for fused lasso. By default, $\texttt{lambda.2.cv}$ is a vector with decreasing values constructed based on the  number of time points $\texttt{T}$ and the number of time series components $\texttt{p}$. 
 * $\texttt{q}$: the AR order. By default, $\texttt{q}$ = 1.
-* $\texttt{max.iteration}$: the max number of iteration for the fused lasso. By default, $\texttt{max.iteration}$ = 100. 
+* $\texttt{max.iteration}$: the max number of iteration for the fused lasso. By default, $\texttt{max.iteration}$ = 50. 
 * $\texttt{tol}$: tolerance for the fused lasso. By default, $\texttt{tol}$ = $10^{-2}$. 
 * $\texttt{block.size}$: the block size $b_n$. By default, $b_n= \lfloor \sqrt{T} \rfloor$.
 * $\texttt{blocks}$: the blocks (sequence). By default, $\texttt{blocks = seq(0,T,block.size)}$. One could also use $\texttt{blocks}$ to handle varying-size blocks. For example, $\texttt{blocks= c(seq(0,5000,100), seq(5200,10000,200))}$. 
+* $\texttt{an.grid}$: a list of values for $a_n$. By default it is NULL.
+
+

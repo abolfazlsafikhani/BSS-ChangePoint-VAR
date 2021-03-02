@@ -11,6 +11,7 @@ library("Rcpp")
 library("RcppArmadillo")
 
 ######## Call Functions #########################
+# Need to set the working directory
 source("Functions_BSS.R")
 #cpp code for block fused lasso and block lasso
 sourceCpp("Functions_BSS.cpp")

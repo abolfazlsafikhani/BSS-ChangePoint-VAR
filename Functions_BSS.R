@@ -692,8 +692,8 @@ bss <- function(data, lambda.1.cv = NULL, lambda.2.cv = NULL, q = 1,
         ######################################################
         ######## Thrid Step: Exhaustive Search      ##########
         ######################################################
-        print("second.brk.points:")
-        print(second.brk.points)
+        # print("second.brk.points:")
+        # print(second.brk.points)
         pts.final <- second.brk.points;
         phi.local.1.full <- temp$phi.local.1
         phi.local.2.full <- temp$phi.local.2

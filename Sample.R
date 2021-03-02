@@ -23,7 +23,7 @@ brk <- c(floor(T/3),floor(2*T/3),T+1); # true break points with T+1 as the last 
 m0 <- length(brk) -1; # number of break points
 q.t <- 1; # the true AR order
 m <- m0+1 #number of segments
-sp_density <- c(0.05, 0.05, 0.05) #sparsity level (5%)
+sp_density <- c(0.05, 0.10, 0.07) #sparsity level (in percentage)
 
 #####################################################
 ########## Data Generation       ####################

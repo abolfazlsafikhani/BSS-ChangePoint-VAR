@@ -1,7 +1,7 @@
 # BSS-ChangePoint-VAR
 R codes for locating structural breaks for high-dim sparse VAR models using the BSS Method
 
-Updated: May 27 2020.
+Updated: March 2 2021.
 
 This repository contains code to apply the algorithm in
 

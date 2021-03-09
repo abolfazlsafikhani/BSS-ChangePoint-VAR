@@ -602,10 +602,10 @@ bss <- function(data, lambda.1.cv = NULL, lambda.2.cv = NULL, q = 1,
     lambda.2.cv <-  c(10*sqrt(log(p)/T),1*sqrt(log(p)/T),0.10*sqrt(log(p)/T))
   }
   
-  print("lambda.1.cv:")
-  print(lambda.1.cv)
-  print("lambda.2.cv:")
-  print(lambda.2.cv)
+  # print("lambda.1.cv:")
+  # print(lambda.1.cv)
+  # print("lambda.2.cv:")
+  # print(lambda.2.cv)
   ######################################################################
   ######## First Step: Initial Break Points Selection ##################
   ######################################################################
@@ -620,15 +620,15 @@ bss <- function(data, lambda.1.cv = NULL, lambda.2.cv = NULL, q = 1,
   time.comparison[1] <- c(time.temp[3])
   
   first.brk.points <- temp.first$brk.points;
-  print("first.brk.points:")
-  print(first.brk.points)
+  # print("first.brk.points:")
+  # print(first.brk.points)
   phi.est.full <- temp.first$phi.full
   #print("cv values:")
   #print(temp.first$cv)
-  print("selected lambda1:")
-  print(temp.first$cv1.final)
-  print("selected lambda2:")
-  print(temp.first$cv2.final)
+  # print("selected lambda1:")
+  # print(temp.first$cv1.final)
+  # print("selected lambda2:")
+  # print(temp.first$cv2.final)
   
   if(length(first.brk.points)>0){
     
@@ -655,8 +655,8 @@ bss <- function(data, lambda.1.cv = NULL, lambda.2.cv = NULL, q = 1,
     while(an.idx < length(an.grid)  ){
       an.idx <- an.idx + 1;
       an <- an.grid[an.idx]
-      print("an:")
-      print(an)
+      # print("an:")
+      # print(an)
       
       #remove the boundary points
       remove.ind <- c();
@@ -692,8 +692,8 @@ bss <- function(data, lambda.1.cv = NULL, lambda.2.cv = NULL, q = 1,
         ######################################################
         ######## Thrid Step: Exhaustive Search      ##########
         ######################################################
-        print("second.brk.points:")
-        print(second.brk.points)
+        # print("second.brk.points:")
+        # print(second.brk.points)
         pts.final <- second.brk.points;
         phi.local.1.full <- temp$phi.local.1
         phi.local.2.full <- temp$phi.local.2
